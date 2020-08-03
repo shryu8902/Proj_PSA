@@ -16,6 +16,7 @@ from tensorflow.keras.layers import RepeatVector,Lambda,LSTM, GRU, SimpleRNN, Ti
 from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
 from tensorflow.keras import optimizers
 from tensorflow.keras import backend as K
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 #%%
 ## Set Seed for reproduciblity
@@ -25,13 +26,15 @@ tf.random.set_seed(SEED)
 #%%
 # Target variable to train & generate
 variable = ['primary_pressure', 'primary_temperature', 'secondary_pressure', 'secondary_temperature', 'PCT']
+
 # Create dataframe to store the mean and std of Absolute Percentage Error
 Test_Results = pd.DataFrame(columns=['config','PP_avg','PP_std','PT_avg','PT_std','SP_avg','SP_std','ST_avg','ST_std','PCT_avg','PCT_std'])
 Val_Results = pd.DataFrame(columns=['config','PP_avg','PP_std','PT_avg','PT_std','SP_avg','SP_std','ST_avg','ST_std','PCT_avg','PCT_std'])
+
 # Create list of dictionary that contains the configurations of NN model
 Bidirect = [False]
 CellType = ['LSTM']
-LayerNorm = [True] 
+LayerNorm = [False] 
 Config_List = [{'bidirect':x,'RNN':y,'layer_norm':z} for x in Bidirect for y in CellType for z in LayerNorm]
 
 #%%
@@ -63,36 +66,45 @@ for j, config in enumerate(Config_List):
         X_val,Y_val = augment_Y_by_resample(X_val,Y_val,5,return_all=True)
         # X_test,Y_test = augment_Y_by_resample(X_test,Y_test,5,return_all=False)
 
+        ## Pad for idling
+        ## Y_train,Y_val
+        Y_train = pad_sequence_by_first(Y_train,20)        
+        Y_val = pad_sequence_by_first(Y_val,20)
+        
         ## Create model
         K.clear_session()
         
         ## Check model exists
         file_name = name_create(config)
-        file_root = './DATA/Models/'+v+file_name+'_LNwPE.hdf5'
+        file_root = './DATA/Models/IDLE'+v+file_name+'_wPE.hdf5'
         # file_root = './DATA/Models/test.h5'
         # if model exist, load model
         # if os.path.exists(file_root):
         #     model = load_model(file_root) 
         # else: #else train new model
-        model = TS_model_LN(bidirect=config['bidirect'])
+        model = TS_model_wPE_idle(bidirect=config['bidirect'], RNN = config['RNN'], 
+                            layer_norm = config['layer_norm'], dr_rates=0.3, num_pads=20)
         model.compile(optimizer='adam',
                 loss='mean_squared_error',
                 metrics=['mean_absolute_error','mean_squared_error']) 
-        
+        # model2 = TS_model_LN(bidirect=config['bidirect'])
+        # model2.load_weights(file_root,by_name=True)
+
         ## Model training
         model_save = ModelCheckpoint(file_root, save_weights_only=True, save_best_only=True, monitor='val_loss', mode='min')
 
         early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-        history = model.fit(X_train, Y_train.reshape(-1,500,1), 
+        history = model.fit(X_train, Y_train.reshape(-1,520,1), 
                         validation_data=(X_val,Y_val),
                         batch_size = 512, epochs=100,
                         callbacks=[early_stopping,model_save])
         # new_model = TS_model_wPE(bidirect=config['bidirect'], RNN = config['RNN'], layer_norm = config['layer_norm'])
         # new_model.load_weights(file_root)
         # model_test = load_model(file_root),custom_objects={'positional_encoding':positional_encoding,'get_angles':get_angles,'tile_fun':tile_fun})
+        
         ## Calculate val and test mapes 
-        #Validation loss       
-        Y_hat = model.predict(X_val_base).reshape(-1,500)
+        #Validation loss      
+        Y_hat = model.predict(X_val_base).reshape(-1,520)[:,20:]
         Y_hat_up = upscaling(Y_hat, sampling_rate=5)
         Y_hat_up_ = output_scaler.inverse_transform(Y_hat_up.reshape(-1,1)).reshape(-1,2500)
         Y_val_ = output_scaler.inverse_transform(Y_val_base.reshape(-1,1)).reshape(-1,2500)
@@ -101,7 +113,7 @@ for j, config in enumerate(Config_List):
         val_temp.append(val_avg); val_temp.append(val_std);
 
         #Test loss
-        Y_hat = model.predict(X_test).reshape(-1,500)
+        Y_hat = model.predict(X_test).reshape(-1,520)[:,20:]
         Y_hat_up = upscaling(Y_hat, sampling_rate=5)
         Y_hat_up_ = output_scaler.inverse_transform(Y_hat_up.reshape(-1,1)).reshape(-1,2500)
         Y_test_ = output_scaler.inverse_transform(Y_test.reshape(-1,1)).reshape(-1,2500)
@@ -111,14 +123,60 @@ for j, config in enumerate(Config_List):
 
     Val_Results.loc[j] = [file_name[1:]] + val_temp
     Test_Results.loc[j] = [file_name[1:]] + test_temp
-Val_Results.to_csv('./DATA/val_x_LN_wPE.csv')
-Test_Results.to_csv('./DATA/test_x_LN_wPE.csv')
+Val_Results.to_csv('./DATA/IDLE_val_LSTM_wPE.csv')
+Test_Results.to_csv('./DATA/IDLE_test_LSTM_wPE.csv')
 #%%
-i=2000
+i=0
+
 plt.plot(Y_hat_up_[i,:])
-plt.plot(Y_test_[i,:])
+plt.plot(Y_train_[i,:])
 
 #%%
+
+
+K.clear_session()
+
+allpath = './DATA/{}_all.csv'.format(v)
+DATA = np.array(pd.read_csv(allpath, header=None)).T
+DATA_input = DATA[:,:9]
+DATA_output = DATA[:,9:]
+input_scaler_std = StandardScaler()
+output_scaler = StandardScaler()
+DATA_input_std = input_scaler_std.fit_transform(DATA_input)
+DATA_output_n = output_scaler.fit_transform(DATA_output.reshape(-1,1)).reshape(-1,2500)
+
+## train/val/test : 0.7/0.03/0.27
+X_train, X_test, Y_train, Y_test = train_test_split(DATA_input_std, DATA_output_n, test_size=0.3, random_state=SEED)
+X_val, X_test, Y_val, Y_test = train_test_split(X_test,Y_test, test_size = 0.9, random_state=SEED)
+## Reduce time sequence to 1/5 by sampling
+## Hence ther will be 5 sequence for 1 input data.
+X_train,Y_train = augment_Y_by_resample(X_train,Y_train,5,return_all=True)
+X_val_base = X_val; Y_val_base = Y_val
+X_val,Y_val = augment_Y_by_resample(X_val,Y_val,5,return_all=True)
+
+## Check model exists
+file_name = name_create(config)
+file_root = './DATA/Models/IDLE'+v+file_name+'_wPE.hdf5'
+
+model2 = TS_model_wPE_idle(bidirect=config['bidirect'], RNN = config['RNN'], 
+                    layer_norm = config['layer_norm'], dr_rates=0.3, num_pads=20)
+
+model2.load_weights(file_root)
+
+Y_hat = model2.predict(X_train).reshape(-1,520)
+Y_hat_up = upscaling(Y_hat, sampling_rate=5)
+Y_hat_up_ = output_scaler.inverse_transform(Y_hat_up.reshape(-1,1)).reshape(-1,2600)
+Y_train_up = upscaling(Y_train,sampling_rate=5)
+Y_train_ = output_scaler.inverse_transform(Y_train_up.reshape(-1,1)).reshape(-1,2500)
+
+
+
+#%%
+def pad_sequence_by_first(sequences, pad_len=20):
+    tiles = np.tile(sequences[:,0].reshape(-1,1),(1,pad_len))
+    padded_sequence = np.concatenate((tiles,sequences),1)
+    return padded_sequence
+
 def name_create(config):
     if config['bidirect']==True:
         x = '_bi-'
@@ -139,9 +197,10 @@ import tensorflow_addons as tfa
 from tensorflow.keras.layers import RNN
 
 def TS_model_LN(bidirect = True):
-    inputs = layers.Input(shape = (9), name ='input')
-    num_rows = tf.shape(inputs, name ='num_rows')[0]
-    pos_enc_tile = tf.tile(positional_encoding(500,9), [num_rows, 1, 1], name='pos_enc_tile')
+
+    inputs = layers.Input(shape = (9,), name ='input')
+    # num_rows = inputs.get_shape().as_list()[0]
+    pos_enc_tile = tf.tile(positional_encoding(500,9), [tf.shape(inputs)[0], 1, 1], name='pos_enc_tile')
     inputs_extend = RepeatVector(500,name='extend_inputs')(inputs)
     inputs_extend_wPE = tf.concat([inputs_extend, pos_enc_tile],2,name = 'input_pos_enc')
     if bidirect == True:
@@ -156,51 +215,45 @@ def TS_model_LN(bidirect = True):
     return model
 
     
-def TS_model_wPE(bidirect = True, RNN = 'LSTM', layer_norm = False):
+def TS_model_wPE_idle(bidirect = True, RNN = 'LSTM', layer_norm = False, dr_rates = 0.3, num_pads=20):
     inputs = layers.Input(shape =(9) ,name='input')
-    # pos_encoding = tf.constant(positional_encoding(500, 9))
     num_rows = tf.shape(inputs,name='num_rows')[0]
-    # pos_enc_tile = tf.stack([positional_encoding(500,9)]*num_rows)
-    # pos_enc_tile=Lambda(lambda x : tile_fun(x,num_rows))(positional_encoding(500,9))
-    pos_enc_tile = tf.tile(positional_encoding(500,9), [num_rows, 1,1],name='pos_enc_tile')
-    # pos = layers.Inputs(shape=(500,9),name = 'position')  
-    # pos_input = layers.Input(shape=(500,9),batch_size=1)
-    # pos_enc_tile = tf.tile(pos_input, [num_rows,1,1])
-    inputs_extend = RepeatVector(500,name='extend_inputs')(inputs)
+    pos_enc_tile = tf.tile(positional_encoding(500+num_pads,9), [num_rows, 1,1],name='pos_enc_tile')
+    inputs_extend = RepeatVector(500+num_pads,name='extend_inputs')(inputs)
     inputs_extend_wPE = tf.concat([inputs_extend, pos_enc_tile],2,name='input_pos_enc')
 
     if bidirect ==True:
         if RNN == 'LSTM':
-            layer_1 = Bidirectional(LSTM(128, return_sequences=True,dropout=0.3))(inputs_extend_wPE)
+            layer_1 = Bidirectional(LSTM(128, return_sequences=True,dropout=dr_rates))(inputs_extend_wPE)
         elif RNN == 'GRU':
-            layer_1 = Bidirectional(GRU(128, return_sequences=True,dropout=0.3))(inputs_extend_wPE)
+            layer_1 = Bidirectional(GRU(128, return_sequences=True,dropout=dr_rates))(inputs_extend_wPE)
         else :
-            layer_1 = Bidirectional(SimpleRNN(128, return_sequences=True,dropout=0.3))(inputs_extend_wPE)
+            layer_1 = Bidirectional(SimpleRNN(128, return_sequences=True,dropout=dr_rates))(inputs_extend_wPE)
     else :
         if RNN == 'LSTM':
-            layer_1 = LSTM(128, return_sequences=True,dropout=0.3)(inputs_extend_wPE)
+            layer_1 = LSTM(128, return_sequences=True,dropout=dr_rates)(inputs_extend_wPE)
         elif RNN == 'GRU':
-            layer_1 = GRU(128, return_sequences=True,dropout=0.3)(inputs_extend_wPE)
+            layer_1 = GRU(128, return_sequences=True,dropout=dr_rates)(inputs_extend_wPE)
         else :
-            layer_1 = SimpleRNN(128, return_sequences=True,dropout=0.3)(inputs_extend_wPE)
+            layer_1 = SimpleRNN(128, return_sequences=True,dropout=dr_rates)(inputs_extend_wPE)
 
     if layer_norm==True:
         layer_1 = LayerNormalization()(layer_1)
     
     if bidirect ==True:
         if RNN == 'LSTM':
-            layer_2 = Bidirectional(LSTM(128, return_sequences=True,dropout=0.3))(layer_1)
+            layer_2 = Bidirectional(LSTM(128, return_sequences=True,dropout=dr_rates))(layer_1)
         elif RNN == 'GRU':
-            layer_2 = Bidirectional(GRU(128, return_sequences=True,dropout=0.3))(layer_1)
+            layer_2 = Bidirectional(GRU(128, return_sequences=True,dropout=dr_rates))(layer_1)
         else :
-            layer_2 = Bidirectional(SimpleRNN(128, return_sequences=True,dropout=0.3))(layer_1)
+            layer_2 = Bidirectional(SimpleRNN(128, return_sequences=True,dropout=dr_rates))(layer_1)
     else :
         if RNN == 'LSTM':
-            layer_2 = LSTM(128, return_sequences=True,dropout=0.3)(layer_1)
+            layer_2 = LSTM(128, return_sequences=True,dropout=dr_rates)(layer_1)
         elif RNN == 'GRU':
-            layer_2 = GRU(128, return_sequences=True,dropout=0.3)(layer_1)
+            layer_2 = GRU(128, return_sequences=True,dropout=dr_rates)(layer_1)
         else :
-            layer_2 = SimpleRNN(128, return_sequences=True,dropout=0.3)(layer_1)
+            layer_2 = SimpleRNN(128, return_sequences=True,dropout=dr_rates)(layer_1)
 
     if layer_norm==True:
         layer_2 = LayerNormalization()(layer_2)
