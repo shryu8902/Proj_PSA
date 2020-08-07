@@ -7,7 +7,10 @@ def augment_Y_by_resample(X,Y,sampling_rate = 5, return_all=True):
     for i in range(sampling_rate):
         temp_y.append(Y[:,range(i,2500+i,sampling_rate)])
     if return_all == True:
-        Y_ = np.reshape(temp_y,(-1, np.int(2500/sampling_rate)))
+        if len(Y.shape)==3:
+            Y_=np.reshape(temp_y,(-1,np.int(2500/sampling_rate),5))
+        else:    
+            Y_ = np.reshape(temp_y,(-1, np.int(2500/sampling_rate)))
         X_ = np.reshape([X for i in range(sampling_rate)],(-1,9))
     else :
         Y_ = temp_y[0]
@@ -15,17 +18,29 @@ def augment_Y_by_resample(X,Y,sampling_rate = 5, return_all=True):
     return X_, Y_
 
 def upscaling(Y_low, sampling_rate = 5):
-    row, col = np.shape(Y_low)
-    Y_up = np.empty((row,sampling_rate*col))
-    Y_up[:] = np.NaN
-    Y_up[:,range(0,sampling_rate*col,sampling_rate)]=Y_low
+    if len(Y_low.shape)==2 :
+        N, T = np.shape(Y_low)
+        Y_up = np.empty((N, sampling_rate*T))
+        Y_up[:] = np.NaN
+        Y_up[:,range(0,sampling_rate*T,sampling_rate),...]=Y_low
+        df_for_fillna = pd.DataFrame(Y_up.T)
+        df_for_fillna = df_for_fillna.interpolate()
+        Y_up_ = np.array(df_for_fillna).T
+        return Y_up_
 
-    df_for_fillna = pd.DataFrame(Y_up.T)
-    df_for_fillna = df_for_fillna.interpolate()
-    Y_up_ = np.array(df_for_fillna).T
-
-    return Y_up_
-
+    elif len(Y_low.shape)==3 :
+        N,T,D = np.shape(Y_low)
+        Y_up = np.empty((N, sampling_rate*T, D))
+        Y_up[:] = np.NaN
+        Y_up[:,range(0,sampling_rate*T,sampling_rate),...] = Y_low
+        for i in range(D):
+            df_for_fillna = pd.DataFrame(Y_up[...,i].T)
+            df_for_fillna = df_for_fillna.interpolate()
+            Y_up[...,i] = np.array(df_for_fillna).T
+        return Y_up
+    else:
+        print("wrong dimension")
+    
 def mean_absolute_percentage_error(y_true, y_pred): 
     ape = np.abs((y_true-y_pred)/y_true)*100
     mape = np.mean(ape)
@@ -72,3 +87,11 @@ def name_create(config):
         y = '-x'
     name = x + config['RNN'] + y
     return name
+#%%
+def pad_sequence_by_first(sequences, pad_len=20):
+    if len(sequences.shape) == 3:
+        tiles = np.tile(sequences[:,0,:].reshape(-1,1,5),(1,pad_len,1))
+    else:
+        tiles = np.tile(sequences[:,0].reshape(-1,1),(1,pad_len))
+    padded_sequence = np.concatenate((tiles,sequences),1)
+    return padded_sequence
