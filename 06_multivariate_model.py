@@ -17,7 +17,7 @@ from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, Early
 from tensorflow.keras import optimizers
 from tensorflow.keras import backend as K
 #%%
-os.environ["CUDA_VISIBLE_DEVICES"]='7'
+# os.environ["CUDA_VISIBLE_DEVICES"]='7'
 variable = ['primary_pressure', 'primary_temperature', 'secondary_pressure', 'secondary_temperature', 'PCT']
 
 DATA = DataMerge('./DATA')

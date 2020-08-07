@@ -46,7 +46,7 @@ BATCH = 1024
 WINDOW = 100
 SAMPLING = 5
 STRIDE = 3
-LR = 0.001
+LR = 1e-4
 EPOCH = 10
 NUM_CELL = 512
 DR_RATES = 0.3
@@ -72,6 +72,31 @@ model.compile(optimizer='adam',
             loss='mean_squared_error',
             metrics=['mean_absolute_error','mean_squared_error'])
 history = model.fit(Train_BG,epochs=EPOCH, validation_data= Val_BG, callbacks=[checkpoint])
+
+#%% Sampling Rate = 5 [action_in, state_in]
+# action_in : shape  = N X Window X 9
+# state_in : shape = N X Window X 5
+
+# Test_X = DATA_test.X
+# Test_Y_samp = DATA_test.Y[:,range(0,2500,SAMPLING),...]
+Test_X = X_test
+Test_Y_samp = Y_test[:,range(0,2500,SAMPLING),...]
+
+
+TEMP_OUTPUT = np.empty((np.shape(Test_X)[0], int(2500/SAMPLING),5))
+TEMP_OUTPUT[:,:100,:] = Test_Y_samp[:,:100,:]
+for i in range(100,500):    
+    test_action = np.tile(Test_X[:,np.newaxis,:],(1,100,1))
+    test_state = TEMP_OUTPUT[:,(i-100):i,:]
+    output = model.predict([test_action, test_state])    
+    TEMP_OUTPUT[:,i,:] = output[:,99,:]
+
+#%%
+i=2000
+dim=0
+plt.plot(Test_Y_samp[i,:,dim],label='Real')
+plt.plot(TEMP_OUTPUT[i,:,dim],label='Pred')
+plt.legend()
 #%% Test Phase
 
 #%%
