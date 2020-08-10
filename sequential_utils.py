@@ -1,10 +1,10 @@
 from tensorflow.keras.utils import Sequence
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler,MinMaxScaler
 
 class DataMerge():
-    def __init__(self, base_path='./DATA', SCALERS=None):
+    def __init__(self, base_path='./DATA', SCALE='standard',SCALERS=None):
         self.variable = ['primary_pressure', 'primary_temperature', 'secondary_pressure', 'secondary_temperature', 'PCT']
         self.base_path = base_path
         self.RAW_data = {}
@@ -20,14 +20,20 @@ class DataMerge():
             if i ==0:
                 self.RAW_data['action']=temp_data[:,:9]
                 if SCALERS is None:
-                    self.SCALERS['action']=StandardScaler()
+                    if SCALE =='standard':
+                        self.SCALERS['action']=StandardScaler()
+                    else :
+                        self.SCALERS['action']=MinMaxScaler()
                     self.PROC_data['action']=self.SCALERS['action'].fit_transform(self.RAW_data['action'])
                 else:
                     self.PROC_data['action']=self.SCALERS['action'].transform(self.RAW_data['action'])
 
             self.RAW_data[v]=temp_data[:,9:]
             if SCALERS is None:
-                self.SCALERS[v]=StandardScaler()
+                if SCALE =='standard':
+                    self.SCALERS[v]=StandardScaler()
+                else:
+                    self.SCALERS[v]=MinMaxScaler()
                 self.PROC_data[v]=self.SCALERS[v].fit_transform(self.RAW_data[v].reshape(-1,1)).reshape(-1,2500)
             else:
                 self.PROC_data[v]=self.SCALERS[v].transform(self.RAW_data[v].reshape(-1,1)).reshape(-1,2500)

@@ -44,10 +44,15 @@ Test_Results2 = pd.DataFrame(columns=['config','PP_avg','PP_std','PT_avg','PT_st
 # MV_gen2 : Uni-direct, idle, PE, LSTM
 # MV_gen3 : Uni-direct, idle, LSTM
 # MV_gen4 : Bi-direct, idle, PE, LSTM, NO DR
-
+# MV_gen5 : Bi-direct, idle, PE(add), LSTM
+# MV_gen6 : CNN, idle, PE(add) NO DR
+# MV_gen7 : CNN, idle, PE(add)
 K.clear_session()
-file_root = './DATA/Models/MV_gen4.hdf5'
-model = MV_TS_model_wPE_idle(dr_rates = 0)
+file_root = './DATA/Models/MV_gen7.hdf5'
+
+
+model = MV_TS_model_CNN()
+# model = MV_TS_model_wPE_idle2()
 # model = MV_TS_model_idle()
 model.compile(optimizer='adam',
         loss='mean_squared_error',
@@ -103,12 +108,13 @@ test_temp = []
 for i,v in enumerate(variable):
     test_avg, test_std = mean_absolute_percentage_error(Y_test_[...,i],Y_hat_up_[...,i])
     test_temp.append(test_avg); test_temp.append(test_std);
-Test_Results2.loc[3] = ['MV_LSTM4']+test_temp
+Test_Results2.loc[0] = ['MV_LSTM4']+test_temp
 #%%
-i=0
+i=400
 dim=4
 plt.plot(Y_hat_up_[i,:,dim],label='Pred')
 plt.plot(Y_test_[i,:,dim],label='Real')
+plt.legend()
 #%%
 # Positional encoding
 # Idle state
@@ -136,14 +142,36 @@ def MV_TS_model_wPE_idle2(bidirect = True, RNN = 'LSTM', layer_norm = False, dr_
     inputs_extend_wPE = inputs_extend+pos_enc_tile
     # inputs_extend_wPE = tf.concat([inputs_extend, pos_enc_tile],2,name='input_pos_enc')
 
-    layer_1 = Bidirectional(LSTM(128, return_sequences=True,dropout=dr_rates))(inputs_extend_wPE)
-    layer_2 = Bidirectional(LSTM(128, return_sequences=True,dropout=dr_rates))(layer_1)
+    layer_1 = Bidirectional(LSTM(256, return_sequences=True,dropout=dr_rates))(inputs_extend_wPE)
+    layer_2 = Bidirectional(LSTM(256, return_sequences=True,dropout=dr_rates))(layer_1)
     # layer_1 = LSTM(128, return_sequences=True,dropout=dr_rates)(inputs_extend_wPE)
     # layer_2 = LSTM(128, return_sequences=True,dropout=dr_rates)(layer_1)
-    layer_3 = TimeDistributed(Dense(64,activation='elu'))(layer_2)
+    layer_3 = TimeDistributed(Dense(256,activation='elu'))(layer_2)    
     outputs = TimeDistributed(Dense(5))(layer_3)
     model= Model(inputs, outputs)
     return model
+
+def MV_TS_model_CNN(num_pads=20,num_layer=3,dr_rates=0.3):
+    inputs = layers.Input(shape = 9)
+    num_rows = tf.shape(inputs,name='num_rows')[0]
+    pos_enc_tile = tf.tile(positional_encoding(500+num_pads,9), [num_rows, 1,1],name='pos_enc_tile')
+    inputs_extend = RepeatVector(500+num_pads,name='extend_inputs')(inputs)
+    inputs_extend_wPE = inputs_extend+pos_enc_tile
+    conv = layers.Conv1D(128,3,padding='same')(inputs_extend_wPE)
+    bn = layers.BatchNormalization()(conv)
+    relu = layers.LeakyReLU()(bn)
+    current_input = relu
+    for i in range(num_layer):
+        conv = layers.Conv1D(128,3,padding='same')(current_input)
+        bn = layers.BatchNormalization()(conv)
+        relu = layers.LeakyReLU()(bn)
+        current_input = relu + current_input
+        current_input = tf.keras.layers.Dropout(dr_rates)(current_input) 
+
+    outputs = layers.Conv1D(5,3,padding='same')(current_input)        
+    model = Model(inputs, outputs)
+    return model
+
 # Without Positional Encoding
 def MV_TS_model_idle(bidirect = True, RNN = 'LSTM', layer_norm = False, dr_rates = 0.3, num_pads=20):
     inputs = layers.Input(shape =(9) ,name='input')
