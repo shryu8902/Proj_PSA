@@ -9,6 +9,8 @@ import time
 from utils import *
 from sequential_utils import *
 import tensorflow as tf
+import tqdm
+import pickle
 
 
 #%%
@@ -23,21 +25,21 @@ variable = ['primary_pressure', 'primary_temperature', 'secondary_pressure', 'se
 Test_Results = pd.DataFrame(columns=['config','PP_avg','PP_std','PT_avg','PT_std','SP_avg','SP_std','ST_avg','ST_std','PCT_avg','PCT_std'])
 Val_Results = pd.DataFrame(columns=['config','PP_avg','PP_std','PT_avg','PT_std','SP_avg','SP_std','ST_avg','ST_std','PCT_avg','PCT_std'])
 
-DATA = DataMerge('./DATA')
+DATA = DataMerge('./DATA',SCALE='minmax')
 DATA_test = DataMerge('./DATA/TestSet',SCALERS=DATA.SCALERS)
 
+#%%
 DATA_X = np.random.uniform(0,1,(8000,9))
 DATA_Y = np.random.uniform(0,1,(8000,2500,5))
 
-saver = train_pickle_saver(window_size=10, sampling_rate = 100, stride= 1000)
-A,B,C = saver(DATA_X, DATA_Y)
+saver = train_pickle_saver(window_size=50, sampling_rate = 5, stride= 2)
+saver(DATA.X, DATA.Y, path = './DATA/pickles/minmax/train/')
+saver(DATA_test.X, DATA_test.Y, path = './DATA/pickles/minmax/test/')
 
 X_train, X_test, Y_train, Y_test = train_test_split(DATA.Y, test_size=0.3, random_state=SEED)
 X_val, X_test, Y_val, Y_test = train_test_split(X_test, Y_test, test_size = 0.9, random_state=SEED)
 
 
-import tqdm
-import pickle
 #%%
 class train_pickle_saver():
     def __init__(self, window_size=100, sampling_rate = 5, stride = 3):
