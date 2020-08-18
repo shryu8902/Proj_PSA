@@ -13,6 +13,7 @@ N = 100
 SEQLEN= 10
 IN_DIM = 9
 OUT_DIM = 5
+BATCH_SIZE = 512
 INP_NAME = '{}_INPUT_win{}_smp{}_str{}.pickle'.format(i,self.window_size,self.sampling_rate,self.stride)
 #%%
 with open('./DATA/pickles/minmax/train/0_INPUT_win50_smp5_str2.pickle', 'rb') as f:
@@ -25,8 +26,8 @@ with open('./DATA/pickles/minmax/train/0_INPUT_ACTION_win50_smp5_str2.pickle', '
 SEED=0
 #%%
 from sklearn.model_selection import train_test_split
-DATA = DataMerge('./DATA')
-DATA_test = DataMerge('./DATA/TestSet')
+DATA = DataMerge('./DATA',SCALE='minmax')
+DATA_test = DataMerge('./DATA/TestSet',SCALERS = DATA.SCALERS)
 train_ind, test_ind = train_test_split(list(range(8004)),test_size=0.3, random_state=SEED)
 val_ind, test_ind = train_test_split(test_ind,test_size=0.9, random_state=SEED)
 #%%
@@ -44,8 +45,8 @@ TEST = DataLoader(test_ind)
 np.save('./DATA/pickles/minmax/train/test_STATE',TEST.STATE)
 np.save('./DATA/pickles/minmax/train/test_ACTION',TEST.ACTION)
 np.save('./DATA/pickles/minmax/train/test_OUT',TEST.OUT)
-
-
+#%%
+window_size=50, sampling_rate = 5, stride= 2
 #%%
 class DataLoader():
   def __init__(self, index):
@@ -72,58 +73,110 @@ class DataLoader():
     self.ACTION = ACTION
     self.OUT = OUT
 
-class FullBatchLoader():
-  def __init__(self,root_STATE, root_ACTION, root_OUT):
+class FullBatchLoader(tf.keras.utils.Sequence):
+  def __init__(self,root_STATE, root_ACTION, root_OUT, BATCH, shuffle = True, seed=0):
     self.STATE = np.load(root_STATE)
     self.ACTION = np.load(root_ACTION)
     self.OUT = np.load(root_OUT)
+    self.batch_size = BATCH
+    self.seed=seed
+    self.shuffle = shuffle
+    self.indices = list(range(len(self.STATE)))
+  def on_epoch_end(self):
+    if self.shuffle:
+      np.random.shuffle(self.indices)
+  def __len__(self):    
+    return len(self.indices) // self.batch_size
+  def __getitem__(self,index):
+    sample_index = self.indices[index*self.batch_size : (index+1)*self.batch_size]    
+    return ([self.STATE[sample_index],self.ACTION[sample_index]],self.OUT[sample_index])
 
 #%% 
 # Read full batches for training
 TRAIN = FullBatchLoader('./DATA/pickles/minmax/train/STATE.npy',
                         './DATA/pickles/minmax/train/ACTION.npy',
-                        './DATA/pickles/minmax/train/OUT.npy')
+                        './DATA/pickles/minmax/train/OUT.npy',
+                        BATCH=BATCH_SIZE, shuffle=False, seed=0)
 VAL = FullBatchLoader('./DATA/pickles/minmax/train/val_STATE.npy',
                         './DATA/pickles/minmax/train/val_ACTION.npy',
-                        './DATA/pickles/minmax/train/val_OUT.npy')
+                        './DATA/pickles/minmax/train/val_OUT.npy',
+                        BATCH=BATCH_SIZE, shuffle=False, seed=0)
 TEST = FullBatchLoader('./DATA/pickles/minmax/train/test_STATE.npy',
                         './DATA/pickles/minmax/train/test_ACTION.npy',
-                        './DATA/pickles/minmax/train/test_OUT.npy')
-#%%
-train_loss = tf.keras.metrics.Mean(name='train_loss')
-optimizer = tf.keras.optimizers.Adam(1e-3, beta_1=0.9, beta_2=0.98, 
-                                     epsilon=1e-9)
+                        './DATA/pickles/minmax/train/test_OUT.npy',
+                        BATCH=BATCH_SIZE, shuffle=False, seed=0)
 
-for epoch in range(EPOCH):
+
+
+#%% 
+# Training Stage
+
+EPOCH=20 
+import time
+checkpoint_path = "./Models/transformer"
+ckpt = tf.train.Checkpoint(transformer=transformer, optimizer=optimizer)
+ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+
+TE_ver2 = Transformer_enc(num_layers=3,d_model = 128,num_heads = 16,dff= 256,rate=0.1)
+train_loss = tf.keras.metrics.Mean(name='train_loss')
+optimizer = tf.keras.optimizers.Adam(1e-3, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+checkpoint_path = "./Models/transformer"
+ckpt = tf.train.Checkpoint(transformer=TE_ver1,
+                           optimizer=optimizer)
+
+ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+
+for epoch in range(10):
   start = time.time()  
   train_loss.reset_states()
-  train_accuracy.reset_states()
-  for 
-    
-
-  for (batch, (inp, tar)) in enumerate(train_dataset):
-    train_step(inp, tar)
-    
-    if batch % 50 == 0:
-      print ('Epoch {} Batch {} Loss {:.4f} Accuracy {:.4f}'.format(
-          epoch + 1, batch, train_loss.result(), train_accuracy.result()))
+  for (batch, (inp, outp)) in enumerate(TRAIN):
+    train_step(TE_ver1, inp[0], inp[1], outp, optimizer)
+    # print(batch)  
+    # if batch % 50 == 0:
+    #   print ('Epoch {} Batch {} Loss {:.4f} Accuracy {:.4f}'.format(
+    #       epoch + 1, batch, train_loss.result(), train_accuracy.result()))
       
   if (epoch + 1) % 5 == 0:
     ckpt_save_path = ckpt_manager.save()
     print ('Saving checkpoint for epoch {} at {}'.format(epoch+1,
                                                          ckpt_save_path))
     
-  print ('Epoch {} Loss {:.4f} Accuracy {:.4f}'.format(epoch + 1, 
-                                                train_loss.result(), 
-                                                train_accuracy.result()))
-
+  print ('Epoch {} Loss {:.4f}'.format(epoch + 1, train_loss.result()))
   print ('Time taken for 1 epoch: {} secs\n'.format(time.time() - start))
 
-TE_ver1 = Transformer_enc(num_layers=3,d_model = 64,num_heads = 8,dff= 128,rate=0.1)
 for i in range(100):
   train_loss.reset_states()
   train_step(TE_ver1,enc_input[:512,...], enc_act_input[:512,...], enc_output[:512,...])
   print(i,train_loss.result())
+
+#%%
+# Inference stage
+DATA_test.X : N by 9
+DATA_test.Y : N by 2500 by 9
+
+
+
+
+SAMPLED_OUTPUT = np.float32(DATA_test.Y[:,range(0,2500,5)])
+Test_X = np.float32(DATA_test.X)
+
+TEST_OUTPUT = np.empty((np.shape(SAMPLED_OUTPUT)))
+TEST_OUTPUT[:,:50,:]=SAMPLED_OUTPUT[:,:50,:]
+
+for i in range(50,500):
+    action = np.float32(DATA_test.X)
+    state = TEST_OUTPUT[:,(i-50):i,:] 
+    output = TE_ver1(state,action,False,None,None,None)
+    TEST_OUTPUT[:,i,:] = output
+
+#%%
+index=43
+channel = 1
+plt.plot(TEST_OUTPUT[index,:,channel],label='transformer')
+plt.plot(SAMPLED_OUTPUT[index,:,channel],label='real')
+plt.legend()
+plt.grid()
+
 #%% training_phase 
 # @tf.function(input_signature=train_step_signature)
 def train_step(model, input_state, input_action, output_real, optimizer):
@@ -170,3 +223,41 @@ class Transformer_enc(tf.keras.Model):
     #     tar, enc_output, training, look_ahead_mask, dec_padding_mask)    
     # final_output = self.final_layer(dec_output)  # (batch_size, tar_seq_len, target_vocab_size)   
     return final_output
+
+#%%
+class Transformer_enc(tf.keras.Model):
+  def __init__(self, num_layers, d_model, num_heads, dff, rate=0.1, **kwargs):
+    super(Transformer_enc, self).__init__(**kwargs)
+    self.embedding = tf.keras.layers.Dense(d_model)
+    self.encoder = Encoder(num_layers, d_model, num_heads, dff, rate)
+    # self.decoder = Decoder(num_layers, d_model, num_heads, dff, 
+    #                        target_vocab_size, pe_target, rate)
+    self.seq_flat = tf.keras.layers.Flatten()
+    self.sub_final = tf.keras.layers.Dense(32)
+    self.concat = tf.keras.layers.Concatenate(axis=-1)
+    self.final_layer = tf.keras.layers.Dense(5)
+    
+  def call(self, state, action, training, enc_padding_mask, 
+           look_ahead_mask, dec_padding_mask):
+    embed_state = self.embedding(state)
+    enc_output = self.encoder(embed_state, training, enc_padding_mask)  # (batch_size, inp_seq_len, d_model)
+    flat = self.seq_flat(enc_output)
+    seq_feat_combine = self.sub_final(flat)
+    action_state = self.concat([seq_feat_combine, action])
+    final_output = self.final_layer(action_state)
+    # (batch_size, 5)
+    # # dec_output.shape == (batch_size, tar_seq_len, d_model)
+    # dec_output, attention_weights = self.decoder(
+    #     tar, enc_output, training, look_ahead_mask, dec_padding_mask)    
+    # final_output = self.final_layer(dec_output)  # (batch_size, tar_seq_len, target_vocab_size)   
+    return final_output  
+
+  def train_step(self, data):
+    with tf.GradientTape() as tape:
+      state = data[0]
+      action= data[1]
+      predictions = self.call(state,action,True,None,None,None)
+    loss =tf.keras.losses.MSE(output_real, predictions)
+    gradients = tape.gradient(loss, self.trainable_variables)    
+    self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+    return{"loss": loss}  
