@@ -261,3 +261,85 @@ class Transformer_enc(tf.keras.Model):
     gradients = tape.gradient(loss, self.trainable_variables)    
     self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
     return{"loss": loss}  
+
+
+#%%
+from tensorflow import keras
+from tensorflow.keras import layers
+import tensorflow.keras.backend as K
+import tensorflow as tf
+
+class Sampling(layers.Layer):
+    """Uses (z_mean, z_log_var) to sample z, the vector encoding a digit."""
+
+    def call(self, inputs): 
+        z_mean, z_log_var = inputs
+        batch = tf.shape(z_mean)[0]
+        dim = tf.shape(z_mean)[1]
+        epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
+        return z_mean + tf.exp(0.5 * z_log_var) * epsilon
+
+def Encoder(SEQLEN,DIM):   
+    inputs = keras.Input(shape=(SEQLEN,DIM))
+    l1 = layers.Flatten()(inputs)
+    l2 = layers.Dense(128)(l1)
+    l3 = layers.BatchNormalization()(l2)
+    l4 = layers.LeakyReLU()(l3)
+    l5 = layers.Dense(64)(l4)
+    l6 = layers.BatchNormalization()(l5)
+    l7 = layers.LeakyReLU()(l6)
+    l8 = layers.Dense(32)(l7)
+    z_mean = layers.Dense(32, name="z_mean")(l8)
+    z_log_var = layers.Dense(32, name="z_log_var")(l8)
+    z = Sampling()([z_mean, z_log_var])
+    encoder = keras.Model(inputs,[z_mean,z_log_var,z])
+    return encoder
+
+def Decoder(SEQLEN,DIM):
+    inputs = keras.Input(shape=(32))
+    d_l1 = layers.Dense(64)(inputs)
+    d_l2 = layers.BatchNormalization()(d_l1)
+    d_l3 = layers.LeakyReLU()(d_l2)
+    d_l4 = layers.Dense(128)(d_l3)
+    d_l5 = layers.BatchNormalization()(d_l4)
+    d_l6 = layers.LeakyReLU()(d_l5)
+    d_l7 = layers.Dense(SEQLEN*DIM)(d_l6)
+    dec_out= layers.Reshape((SEQLEN,DIM))(d_l7)
+    decoder = keras.Model(inputs,dec_out)
+    return decoder
+
+class VAE(keras.Model):
+    def __init__(self, SEQLEN = 30, DIM = 221, **kwargs):
+        super(VAE, self).__init__(**kwargs)
+        self.SEQLEN = SEQLEN
+        self.DIM = DIM
+        self.encoder = Encoder(self.SEQLEN, self.DIM)
+        self.decoder = Decoder(self.SEQLEN, self.DIM)
+
+    def train_step(self, data):
+        if isinstance(data, tuple):
+            data = data[0]
+        with tf.GradientTape() as tape:
+            z_mean, z_log_var, z = self.encoder(data)
+            reconstruction = self.decoder(z)
+            reconstruction_loss = tf.reduce_mean(
+                keras.losses.MSE(data, reconstruction)
+            )
+            kl_loss = 1 + z_log_var - tf.square(z_mean) - tf.exp(z_log_var)
+            kl_loss = tf.reduce_mean(kl_loss)
+            kl_loss *= -0.5
+            total_loss = reconstruction_loss + kl_loss
+
+        grads = tape.gradient(total_loss, self.trainable_weights)
+        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+        return {
+            # "batch":batch_n,
+            "loss": total_loss,
+            "reconstruction_loss": reconstruction_loss,
+            "kl_loss": kl_loss,
+        }
+
+    def call(self,inputs):
+        z_mean, z_log_var, z = self.encoder(inputs)
+        reconstruction = self.decoder(z_mean)
+        return ([z_mean,z_log_var,z], reconstruction)

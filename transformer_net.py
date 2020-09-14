@@ -2,13 +2,13 @@ import tensorflow as tf
 
 
 class Transformer_enc(tf.keras.Model):
-  def __init__(self, num_layers, d_model, num_heads, dff, rate=0.1):
-    super(Transformer_enc, self).__init__()
+  def __init__(self, num_layers, d_model, num_heads, dff, rate=0.1, **kwargs):
+    super(Transformer_enc, self).__init__(**kwargs)
     self.embedding = tf.keras.layers.Dense(d_model)
     self.encoder = Encoder(num_layers, d_model, num_heads, dff, rate)
     # self.decoder = Decoder(num_layers, d_model, num_heads, dff, 
     #                        target_vocab_size, pe_target, rate)
-    self.seq_flat = tf.keras.layers.Flatten()
+    self.seq_flat = tf.keras.layers.GlobalAveragePooling1D()
     self.sub_final = tf.keras.layers.Dense(32)
     self.concat = tf.keras.layers.Concatenate(axis=-1)
     self.final_layer = tf.keras.layers.Dense(5)
