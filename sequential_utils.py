@@ -39,8 +39,8 @@ class DataMerge():
                 self.PROC_data[v]=self.SCALERS[v].transform(self.RAW_data[v].reshape(-1,1)).reshape(-1,2500)
 
         self.RAW_Y = np.stack([self.RAW_data[v] for v in self.variable], axis = 2)
-        self.Y = np.stack([self.PROC_data[v] for v in self.variable], axis=2)
-        self.X = self.PROC_data['action']
+        self.Y = np.stack([self.PROC_data[v] for v in self.variable], axis=2).astype('float32')
+        self.X = self.PROC_data['action'].astype('float32')
 
 # class BatchGenerator2(Sequence):
 #     def __init__(self, X, Y, batch_size = 512, seed = 0):
