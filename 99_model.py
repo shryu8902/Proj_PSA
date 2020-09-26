@@ -1,9 +1,10 @@
 #%%
 # DATA.X : [None, 9]
-# DATA.Y : [None, 2500,5]
+# DATA.Y : [None, seqlen,5]
 import tensorflow as tf
 import tensorflow.keras
 from utility import *
+import tensorflow.keras.backend as K
 
 def MV_PECNN(seqlen):
     inputs = layers.Input(shape=(9))
@@ -13,7 +14,14 @@ def MV_PECNN(seqlen):
     bn = layers.BatchNormalization()(conv)        
     conv = 
 
-    num_rows = tf.shape()        
+def differential_loss(y_pred, y_true):
+    mse = K.square(y_true - y_pred)
+    y_true_diff = np.diff(y_true)
+    y_pred_diff = np.diff(y_pred)
+    mse_diff = K.square(y_true_diff,y_pred_diff)
+    return (mse + mse_diff)
+
+
 def MV_TS_model_CNN(num_pads=20,num_layer=3,dr_rates=0.3):
     inputs = layers.Input(shape = 9)
     num_rows = tf.shape(inputs,name='num_rows')[0]

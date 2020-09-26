@@ -24,3 +24,6 @@ variable = ['primary_pressure', 'primary_temperature', 'secondary_pressure', 'se
 DATA = DataMerge('./DATA')
 DATA_test = DataMerge('./DATA/TestSet',SCALERS=DATA.SCALERS)
 SEED = 0
+
+#%%
+# %%
