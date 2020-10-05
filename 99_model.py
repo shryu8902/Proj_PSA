@@ -3,21 +3,24 @@
 # DATA.Y : [None, seqlen,5]
 import tensorflow as tf
 import tensorflow.keras
-from utility import *
+from utils import *
 import tensorflow.keras.backend as K
-
+#%%
 def MV_PECNN(seqlen):
     inputs = layers.Input(shape=(9))
     inputs_extend = layers.RepeatVector(seqlen)(inputs)
     inputs_ext_PE = inputs_extend + positional_encoding(seqlen,9)
     conv = layers.Conv1D(128,3,padding='same')(inputs_extend_wPE)
     bn = layers.BatchNormalization()(conv)        
-    conv = 
+    relu = layers.LeakyReLU()(bn)
 
+# tf.keras.losses.MeanSquaredError()
 def differential_loss(y_pred, y_true):
-    mse = K.square(y_true - y_pred)
-    y_true_diff = np.diff(y_true)
-    y_pred_diff = np.diff(y_pred)
+#    mse = tf.keras.losses.MSE(y_true,y_pred)
+    mse = tf.reduce_mean(tf.math.square(y_true-y_pred),axis=(-1,-2))
+    K.square(y_true - y_pred)
+    y_true_diff = np.diff(y_true,axis=1)
+    y_pred_diff = np.diff(y_pred,axis=1)
     mse_diff = K.square(y_true_diff,y_pred_diff)
     return (mse + mse_diff)
 
